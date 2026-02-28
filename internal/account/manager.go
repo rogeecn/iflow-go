@@ -3,6 +3,7 @@ package account
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -10,6 +11,7 @@ const defaultBaseURL = "https://apis.iflow.cn/v1"
 
 type Manager struct {
 	storage *Storage
+	mu      sync.RWMutex
 }
 
 func NewManager(dataDir string) *Manager {
@@ -19,6 +21,9 @@ func NewManager(dataDir string) *Manager {
 }
 
 func (m *Manager) Create(apiKey, baseURL string) (*Account, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	apiKey = strings.TrimSpace(apiKey)
 	baseURL = strings.TrimSpace(baseURL)
 
@@ -48,6 +53,9 @@ func (m *Manager) Create(apiKey, baseURL string) (*Account, error) {
 }
 
 func (m *Manager) Get(uuid string) (*Account, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	account, err := m.storage.Load(uuid)
 	if err != nil {
 		return nil, fmt.Errorf("get account: %w", err)
@@ -56,6 +64,9 @@ func (m *Manager) Get(uuid string) (*Account, error) {
 }
 
 func (m *Manager) Delete(uuid string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if err := m.storage.Delete(uuid); err != nil {
 		return fmt.Errorf("delete account: %w", err)
 	}
@@ -63,6 +74,9 @@ func (m *Manager) Delete(uuid string) error {
 }
 
 func (m *Manager) List() ([]*Account, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	accounts, err := m.storage.List()
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
@@ -71,6 +85,9 @@ func (m *Manager) List() ([]*Account, error) {
 }
 
 func (m *Manager) UpdateUsage(uuid string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	account, err := m.storage.Load(uuid)
 	if err != nil {
 		return fmt.Errorf("update usage: %w", err)
@@ -89,6 +106,9 @@ func (m *Manager) UpdateUsage(uuid string) error {
 }
 
 func (m *Manager) UpdateToken(uuid string, accessToken, refreshToken string, expiresAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	account, err := m.storage.Load(uuid)
 	if err != nil {
 		return fmt.Errorf("update token: %w", err)

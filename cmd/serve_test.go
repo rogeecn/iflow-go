@@ -7,12 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rogeecn/iflow-go/internal/account"
 	"github.com/rogeecn/iflow-go/internal/config"
 )
 
 type fakeServeRunner struct {
-	startFn func() error
-	stopFn  func(ctx context.Context) error
+	startFn    func() error
+	stopFn     func(ctx context.Context) error
+	accountMgr *account.Manager
 }
 
 func (f *fakeServeRunner) Start() error {
@@ -29,12 +31,31 @@ func (f *fakeServeRunner) Stop(ctx context.Context) error {
 	return nil
 }
 
+func (f *fakeServeRunner) AccountManager() *account.Manager {
+	return f.accountMgr
+}
+
+type fakeServeRefresher struct {
+	startCalls int
+	stopCalls  int
+}
+
+func (f *fakeServeRefresher) Start() {
+	f.startCalls++
+}
+
+func (f *fakeServeRefresher) Stop() {
+	f.stopCalls++
+}
+
 func TestRunServeStartReturns(t *testing.T) {
 	origNewServeServer := newServeServer
+	origNewServeRefresher := newServeRefresher
 	origSignalNotifyContext := signalNotifyContext
 	origHost, origPort, origConcurrency := serveHost, servePort, serveConcurrency
 	t.Cleanup(func() {
 		newServeServer = origNewServeServer
+		newServeRefresher = origNewServeRefresher
 		signalNotifyContext = origSignalNotifyContext
 		serveHost, servePort, serveConcurrency = origHost, origPort, origConcurrency
 	})
@@ -48,12 +69,21 @@ func TestRunServeStartReturns(t *testing.T) {
 	serveConcurrency = 3
 
 	var capturedCfg *config.Config
+	var refresher *fakeServeRefresher
+	var refresherManager *account.Manager
+	expectedManager := account.NewManager(t.TempDir())
 	newServeServer = func(cfg *config.Config) serveRunner {
 		copied := *cfg
 		capturedCfg = &copied
 		return &fakeServeRunner{
-			startFn: func() error { return nil },
+			startFn:    func() error { return nil },
+			accountMgr: expectedManager,
 		}
+	}
+	newServeRefresher = func(manager *account.Manager) serveRefresher {
+		refresherManager = manager
+		refresher = &fakeServeRefresher{}
+		return refresher
 	}
 
 	if err := runServe(nil, nil); err != nil {
@@ -65,14 +95,25 @@ func TestRunServeStartReturns(t *testing.T) {
 	if capturedCfg.Host != "127.0.0.1" || capturedCfg.Port != 19000 || capturedCfg.Concurrency != 3 {
 		t.Fatalf("unexpected cfg overrides: %+v", *capturedCfg)
 	}
+	if refresher == nil {
+		t.Fatal("refresher was not created")
+	}
+	if refresher.startCalls != 1 || refresher.stopCalls != 1 {
+		t.Fatalf("unexpected refresher calls: start=%d stop=%d", refresher.startCalls, refresher.stopCalls)
+	}
+	if refresherManager != expectedManager {
+		t.Fatal("refresher should use server account manager")
+	}
 }
 
 func TestRunServeShutdownPath(t *testing.T) {
 	origNewServeServer := newServeServer
+	origNewServeRefresher := newServeRefresher
 	origSignalNotifyContext := signalNotifyContext
 	origHost, origPort, origConcurrency := serveHost, servePort, serveConcurrency
 	t.Cleanup(func() {
 		newServeServer = origNewServeServer
+		newServeRefresher = origNewServeRefresher
 		signalNotifyContext = origSignalNotifyContext
 		serveHost, servePort, serveConcurrency = origHost, origPort, origConcurrency
 	})
@@ -80,6 +121,7 @@ func TestRunServeShutdownPath(t *testing.T) {
 	t.Setenv("IFLOW_DATA_DIR", t.TempDir())
 
 	stopCh := make(chan struct{})
+	var refresher *fakeServeRefresher
 	newServeServer = func(cfg *config.Config) serveRunner {
 		return &fakeServeRunner{
 			startFn: func() error {
@@ -92,6 +134,10 @@ func TestRunServeShutdownPath(t *testing.T) {
 			},
 		}
 	}
+	newServeRefresher = func(manager *account.Manager) serveRefresher {
+		refresher = &fakeServeRefresher{}
+		return refresher
+	}
 
 	signalNotifyContext = func(parent context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
 		ctx, cancel := context.WithCancel(parent)
@@ -102,14 +148,22 @@ func TestRunServeShutdownPath(t *testing.T) {
 	if err := runServe(nil, nil); err != nil {
 		t.Fatalf("runServe shutdown path error: %v", err)
 	}
+	if refresher == nil {
+		t.Fatal("refresher was not created")
+	}
+	if refresher.startCalls != 1 || refresher.stopCalls != 1 {
+		t.Fatalf("unexpected refresher calls: start=%d stop=%d", refresher.startCalls, refresher.stopCalls)
+	}
 }
 
 func TestRunServeShutdownError(t *testing.T) {
 	origNewServeServer := newServeServer
+	origNewServeRefresher := newServeRefresher
 	origSignalNotifyContext := signalNotifyContext
 	origHost, origPort, origConcurrency := serveHost, servePort, serveConcurrency
 	t.Cleanup(func() {
 		newServeServer = origNewServeServer
+		newServeRefresher = origNewServeRefresher
 		signalNotifyContext = origSignalNotifyContext
 		serveHost, servePort, serveConcurrency = origHost, origPort, origConcurrency
 	})
@@ -117,6 +171,7 @@ func TestRunServeShutdownError(t *testing.T) {
 	t.Setenv("IFLOW_DATA_DIR", t.TempDir())
 
 	stopErr := fmt.Errorf("stop failed")
+	var refresher *fakeServeRefresher
 	newServeServer = func(cfg *config.Config) serveRunner {
 		return &fakeServeRunner{
 			startFn: func() error {
@@ -127,6 +182,10 @@ func TestRunServeShutdownError(t *testing.T) {
 				return stopErr
 			},
 		}
+	}
+	newServeRefresher = func(manager *account.Manager) serveRefresher {
+		refresher = &fakeServeRefresher{}
+		return refresher
 	}
 
 	signalNotifyContext = func(parent context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
@@ -141,5 +200,11 @@ func TestRunServeShutdownError(t *testing.T) {
 	}
 	if err.Error() != stopErr.Error() {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if refresher == nil {
+		t.Fatal("refresher was not created")
+	}
+	if refresher.startCalls != 1 || refresher.stopCalls != 1 {
+		t.Fatalf("unexpected refresher calls: start=%d stop=%d", refresher.startCalls, refresher.stopCalls)
 	}
 }

@@ -76,6 +76,10 @@ func (s *Server) Start() error {
 	return nil
 }
 
+func (s *Server) AccountManager() *account.Manager {
+	return s.accountMgr
+}
+
 func (s *Server) Stop(ctx context.Context) error {
 	if err := s.shutdownFn(ctx); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("stop server: %w", err)

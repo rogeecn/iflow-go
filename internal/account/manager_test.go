@@ -1,6 +1,7 @@
 package account
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -66,5 +67,46 @@ func TestManagerLifecycle(t *testing.T) {
 
 	if err := manager.Delete(created.UUID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
+	}
+}
+
+func TestManagerUpdateUsageConcurrent(t *testing.T) {
+	manager := NewManager(t.TempDir())
+
+	created, err := manager.Create("sk-test", "")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	const workers = 50
+	start := make(chan struct{})
+	errCh := make(chan error, workers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errCh <- manager.UpdateUsage(created.UUID)
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("UpdateUsage() concurrent error = %v", err)
+		}
+	}
+
+	updated, err := manager.Get(created.UUID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if updated.RequestCount != workers {
+		t.Fatalf("RequestCount = %d, want %d", updated.RequestCount, workers)
 	}
 }

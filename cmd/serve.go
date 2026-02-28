@@ -9,7 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rogeecn/iflow-go/internal/account"
 	"github.com/rogeecn/iflow-go/internal/config"
+	"github.com/rogeecn/iflow-go/internal/oauth"
 	"github.com/rogeecn/iflow-go/internal/server"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -18,6 +20,15 @@ import (
 type serveRunner interface {
 	Start() error
 	Stop(ctx context.Context) error
+}
+
+type serveRefresher interface {
+	Start()
+	Stop()
+}
+
+type accountManagerProvider interface {
+	AccountManager() *account.Manager
 }
 
 var (
@@ -29,6 +40,9 @@ var (
 var (
 	newServeServer = func(cfg *config.Config) serveRunner {
 		return server.New(cfg)
+	}
+	newServeRefresher = func(manager *account.Manager) serveRefresher {
+		return oauth.NewRefresher(manager)
 	}
 	signalNotifyContext = signal.NotifyContext
 )
@@ -65,6 +79,17 @@ func runServe(_ *cobra.Command, _ []string) error {
 	log.Logger = config.InitLogger(cfg.LogLevel)
 
 	srv := newServeServer(cfg)
+	manager := account.NewManager(cfg.DataDir)
+	if provider, ok := srv.(accountManagerProvider); ok {
+		if provided := provider.AccountManager(); provided != nil {
+			manager = provided
+		}
+	}
+
+	refresher := newServeRefresher(manager)
+	refresher.Start()
+	defer refresher.Stop()
+
 	startErrCh := make(chan error, 1)
 	go func() {
 		startErrCh <- srv.Start()
