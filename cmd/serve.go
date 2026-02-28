@@ -77,6 +77,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	log.Logger = config.InitLogger(cfg.LogLevel)
+	log.Info().
+		Str("log_level", cfg.LogLevel).
+		Msg("logger initialized")
 
 	srv := newServeServer(cfg)
 	manager := account.NewManager(cfg.DataDir)
@@ -89,6 +92,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	refresher := newServeRefresher(manager)
 	refresher.Start()
 	defer refresher.Stop()
+	log.Info().Msg("oauth refresher attached to serve lifecycle")
 
 	startErrCh := make(chan error, 1)
 	go func() {
@@ -100,6 +104,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	select {
 	case err := <-startErrCh:
+		if err != nil {
+			log.Error().Err(err).Msg("serve exited with error")
+		}
 		return err
 	case <-ctx.Done():
 		log.Info().Msg("shutdown signal received")
@@ -107,13 +114,18 @@ func runServe(_ *cobra.Command, _ []string) error {
 		defer cancel()
 
 		if err := srv.Stop(shutdownCtx); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("serve shutdown failed")
 			return err
 		}
 
 		select {
 		case err := <-startErrCh:
+			if err != nil {
+				log.Error().Err(err).Msg("serve exited after shutdown with error")
+			}
 			return err
 		case <-time.After(10 * time.Second):
+			log.Error().Msg("serve shutdown timed out")
 			return fmt.Errorf("shutdown timeout")
 		}
 	}

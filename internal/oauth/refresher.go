@@ -51,6 +51,7 @@ func (r *Refresher) Start() {
 	r.mu.Lock()
 	if r.running {
 		r.mu.Unlock()
+		log.Debug().Msg("oauth refresher: start ignored because it is already running")
 		return
 	}
 	r.running = true
@@ -58,6 +59,10 @@ func (r *Refresher) Start() {
 	r.doneChan = make(chan struct{})
 	r.mu.Unlock()
 
+	log.Info().
+		Dur("check_interval", r.checkInterval).
+		Dur("refresh_buffer", r.refreshBuffer).
+		Msg("oauth refresher: started")
 	go r.loop()
 }
 
@@ -65,6 +70,7 @@ func (r *Refresher) Stop() {
 	r.mu.Lock()
 	if !r.running {
 		r.mu.Unlock()
+		log.Debug().Msg("oauth refresher: stop ignored because it is not running")
 		return
 	}
 	r.running = false
@@ -74,6 +80,7 @@ func (r *Refresher) Stop() {
 
 	close(stopChan)
 	<-doneChan
+	log.Info().Msg("oauth refresher: stopped")
 }
 
 func (r *Refresher) shouldRefresh(acct *account.Account) bool {
@@ -114,10 +121,14 @@ func (r *Refresher) refreshOnce() {
 		return
 	}
 
+	candidates := 0
+	refreshed := 0
+
 	for _, acct := range accounts {
 		if !r.shouldRefresh(acct) {
 			continue
 		}
+		candidates++
 
 		token, err := r.client.Refresh(context.Background(), acct.OAuthRefreshToken)
 		if err != nil {
@@ -144,5 +155,12 @@ func (r *Refresher) refreshOnce() {
 		log.Info().
 			Str("uuid", acct.UUID).
 			Msg("oauth refresher: token refreshed")
+		refreshed++
 	}
+
+	log.Debug().
+		Int("accounts", len(accounts)).
+		Int("candidates", candidates).
+		Int("refreshed", refreshed).
+		Msg("oauth refresher: cycle completed")
 }

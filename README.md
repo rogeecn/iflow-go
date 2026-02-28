@@ -75,7 +75,7 @@ iflow-go version
 | `IFLOW_PORT` | `28000` | 服务监听端口 |
 | `IFLOW_CONCURRENCY` | `1` | 并发数 |
 | `IFLOW_DATA_DIR` | `./data` | 数据目录 |
-| `IFLOW_LOG_LEVEL` | `info` | 日志级别 |
+| `IFLOW_LOG_LEVEL` | `info` | 日志级别（`debug`/`info`/`warn`/`error`） |
 | `IFLOW_UPSTREAM_PROXY` | 空 | 上游代理 |
 
 ## 测试

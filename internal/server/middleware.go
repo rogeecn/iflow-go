@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rogeecn/iflow-go/internal/account"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,10 +45,13 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(rec, r)
 
-		log.Info().
+		event := accessLogEvent(r.URL.Path, rec.statusCode)
+		event.
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
 			Int("status", rec.statusCode).
+			Str("remote_addr", r.RemoteAddr).
+			Str("user_agent", r.UserAgent()).
 			Dur("duration", time.Since(start)).
 			Msg("http request completed")
 	})
@@ -63,15 +67,32 @@ func AuthMiddleware(manager *account.Manager) func(http.Handler) http.Handler {
 
 			token, ok := parseBearerToken(r.Header.Get("Authorization"))
 			if !ok {
+				log.Warn().
+					Str("method", r.Method).
+					Str("path", r.URL.Path).
+					Str("remote_addr", r.RemoteAddr).
+					Msg("request rejected: missing or invalid bearer token")
 				writeAPIError(w, http.StatusUnauthorized, "missing or invalid bearer token", "invalid_request_error", "invalid_api_key")
 				return
 			}
 
 			acct, err := manager.Get(token)
 			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("method", r.Method).
+					Str("path", r.URL.Path).
+					Str("account_token", maskToken(token)).
+					Msg("request rejected: account lookup failed")
 				writeAPIError(w, http.StatusUnauthorized, "invalid account token", "invalid_request_error", "invalid_api_key")
 				return
 			}
+
+			log.Debug().
+				Str("method", r.Method).
+				Str("path", r.URL.Path).
+				Str("account_uuid", acct.UUID).
+				Msg("request authenticated")
 
 			ctx := context.WithValue(r.Context(), accountContextKey, acct)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -113,6 +134,30 @@ func accountFromContext(ctx context.Context) (*account.Account, bool) {
 		return nil, false
 	}
 	return acct, true
+}
+
+func accessLogEvent(path string, statusCode int) *zerolog.Event {
+	switch {
+	case statusCode >= http.StatusInternalServerError:
+		return log.Error()
+	case statusCode >= http.StatusBadRequest:
+		return log.Warn()
+	case path == "/health":
+		return log.Debug()
+	default:
+		return log.Info()
+	}
+}
+
+func maskToken(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	if len(token) <= 8 {
+		return token
+	}
+	return token[:4] + "..." + token[len(token)-4:]
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload interface{}) {

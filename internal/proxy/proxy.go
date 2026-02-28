@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rogeecn/iflow-go/internal/account"
 	"github.com/rogeecn/iflow-go/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -44,13 +45,18 @@ func NewProxy(acct *account.Account) *IFlowProxy {
 	builder := NewHeaderBuilder(acct)
 	userID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(strings.TrimSpace(acct.APIKey)+builder.sessionID)).String()
 
-	return &IFlowProxy{
+	p := &IFlowProxy{
 		account:       acct,
 		client:        &http.Client{Timeout: 300 * time.Second},
 		baseURL:       baseURL,
 		headerBuilder: builder,
 		telemetry:     NewTelemetry(userID, builder.sessionID, builder.conversationID),
 	}
+	log.Debug().
+		Str("account_uuid", strings.TrimSpace(acct.UUID)).
+		Str("base_url", baseURL).
+		Msg("proxy initialized")
+	return p
 }
 
 func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatCompletionRequest) (*types.ChatCompletionResponse, error) {
@@ -68,8 +74,19 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 	traceparent := p.headerBuilder.traceparentGenerator()
 	traceID := extractTraceID(traceparent)
 	if p.telemetry != nil {
-		_ = p.telemetry.EmitRunStarted(ctx, model, traceID)
+		if err := p.telemetry.EmitRunStarted(ctx, model, traceID); err != nil {
+			log.Debug().
+				Err(err).
+				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+				Str("model", model).
+				Msg("telemetry run_started failed")
+		}
 	}
+	log.Debug().
+		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+		Str("model", model).
+		Bool("stream", false).
+		Msg("proxy chat request started")
 
 	headers := p.headerBuilder.Build(false)
 	headers["traceparent"] = traceparent
@@ -77,22 +94,51 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 	responseBody, statusCode, err := p.doChatRequest(ctx, headers, requestBody)
 	if err != nil {
 		if p.telemetry != nil {
-			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
+			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
+				log.Debug().
+					Err(emitErr).
+					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+					Str("model", model).
+					Msg("telemetry run_error failed")
+			}
 		}
+		log.Error().
+			Err(err).
+			Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+			Str("model", model).
+			Msg("proxy chat request failed")
 		return nil, err
 	}
 	if statusCode >= http.StatusBadRequest {
 		err := fmt.Errorf("chat completions: status=%d body=%s", statusCode, strings.TrimSpace(string(responseBody)))
 		if p.telemetry != nil {
-			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
+			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
+				log.Debug().
+					Err(emitErr).
+					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+					Str("model", model).
+					Msg("telemetry run_error failed")
+			}
 		}
+		log.Warn().
+			Int("status", statusCode).
+			Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+			Str("model", model).
+			Int("response_bytes", len(responseBody)).
+			Msg("proxy chat request returned upstream error")
 		return nil, err
 	}
 
 	var normalized map[string]interface{}
 	if err := json.Unmarshal(responseBody, &normalized); err != nil {
 		if p.telemetry != nil {
-			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
+			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
+				log.Debug().
+					Err(emitErr).
+					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+					Str("model", model).
+					Msg("telemetry run_error failed")
+			}
 		}
 		return nil, fmt.Errorf("chat completions: decode response: %w", err)
 	}
@@ -108,6 +154,10 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 	if err := json.Unmarshal(normalizedBytes, &parsed); err != nil {
 		return nil, fmt.Errorf("chat completions: parse response type: %w", err)
 	}
+	log.Debug().
+		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+		Str("model", model).
+		Msg("proxy chat request completed")
 
 	return &parsed, nil
 }
@@ -128,8 +178,19 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 	traceparent := p.headerBuilder.traceparentGenerator()
 	traceID := extractTraceID(traceparent)
 	if p.telemetry != nil {
-		_ = p.telemetry.EmitRunStarted(ctx, model, traceID)
+		if err := p.telemetry.EmitRunStarted(ctx, model, traceID); err != nil {
+			log.Debug().
+				Err(err).
+				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+				Str("model", model).
+				Msg("telemetry run_started failed")
+		}
 	}
+	log.Debug().
+		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+		Str("model", model).
+		Bool("stream", true).
+		Msg("proxy chat stream request started")
 
 	headers := p.headerBuilder.Build(true)
 	headers["traceparent"] = traceparent
@@ -150,8 +211,19 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
 		if p.telemetry != nil {
-			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
+			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
+				log.Debug().
+					Err(emitErr).
+					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+					Str("model", model).
+					Msg("telemetry run_error failed")
+			}
 		}
+		log.Error().
+			Err(err).
+			Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+			Str("model", model).
+			Msg("proxy chat stream request failed")
 		return nil, fmt.Errorf("chat stream: send request: %w", err)
 	}
 	if resp.StatusCode >= http.StatusBadRequest {
@@ -159,8 +231,20 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 		body, _ := readDecodedBody(resp)
 		err := fmt.Errorf("chat stream: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 		if p.telemetry != nil {
-			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
+			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
+				log.Debug().
+					Err(emitErr).
+					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+					Str("model", model).
+					Msg("telemetry run_error failed")
+			}
 		}
+		log.Warn().
+			Int("status", resp.StatusCode).
+			Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+			Str("model", model).
+			Int("response_bytes", len(body)).
+			Msg("proxy chat stream request returned upstream error")
 		return nil, err
 	}
 
@@ -168,13 +252,28 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 	if err != nil {
 		_ = resp.Body.Close()
 		if p.telemetry != nil {
-			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
+			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
+				log.Debug().
+					Err(emitErr).
+					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+					Str("model", model).
+					Msg("telemetry run_error failed")
+			}
 		}
+		log.Error().
+			Err(err).
+			Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+			Str("model", model).
+			Msg("proxy chat stream decode response failed")
 		return nil, fmt.Errorf("chat stream: decode response body: %w", err)
 	}
 
 	out := make(chan []byte, 32)
 	go p.forwardSSE(ctx, streamBody, out)
+	log.Debug().
+		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+		Str("model", model).
+		Msg("proxy chat stream established")
 	return out, nil
 }
 
@@ -185,6 +284,7 @@ func (p *IFlowProxy) Models() []ModelConfig {
 }
 
 func (p *IFlowProxy) doChatRequest(ctx context.Context, headers map[string]string, body map[string]interface{}) ([]byte, int, error) {
+	start := time.Now()
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, 0, fmt.Errorf("chat completions: encode request: %w", err)
@@ -208,6 +308,18 @@ func (p *IFlowProxy) doChatRequest(ctx context.Context, headers map[string]strin
 	if err != nil {
 		return nil, 0, fmt.Errorf("chat completions: read response: %w", err)
 	}
+
+	event := log.Debug()
+	if resp.StatusCode >= http.StatusInternalServerError {
+		event = log.Error()
+	} else if resp.StatusCode >= http.StatusBadRequest {
+		event = log.Warn()
+	}
+	event.
+		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+		Int("status", resp.StatusCode).
+		Dur("latency", time.Since(start)).
+		Msg("proxy upstream response received")
 
 	return content, resp.StatusCode, nil
 }
@@ -290,6 +402,7 @@ func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<
 	defer in.Close()
 
 	reader := bufio.NewReader(in)
+	chunkCount := 0
 	for {
 		line, err := reader.ReadString('\n')
 		if line != "" {
@@ -310,15 +423,29 @@ func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<
 
 			select {
 			case out <- payload:
+				chunkCount++
 			case <-ctx.Done():
+				log.Debug().
+					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+					Int("chunks", chunkCount).
+					Msg("proxy sse forward cancelled by context")
 				return
 			}
 		}
 
 		if err == io.EOF {
+			log.Debug().
+				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+				Int("chunks", chunkCount).
+				Msg("proxy sse forward reached eof")
 			return
 		}
 		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
+				Int("chunks", chunkCount).
+				Msg("proxy sse forward stopped on read error")
 			return
 		}
 	}
@@ -354,6 +481,7 @@ func decodedBodyReader(resp *http.Response) (io.ReadCloser, error) {
 	case "":
 		return resp.Body, nil
 	case "gzip":
+		log.Debug().Msg("proxy response using gzip encoding")
 		gr, err := gzip.NewReader(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("gzip reader: %w", err)
@@ -363,6 +491,7 @@ func decodedBodyReader(resp *http.Response) (io.ReadCloser, error) {
 			closers: []io.Closer{gr, resp.Body},
 		}, nil
 	case "deflate":
+		log.Debug().Msg("proxy response using deflate encoding")
 		zr, err := zlib.NewReader(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("deflate reader: %w", err)
@@ -373,6 +502,7 @@ func decodedBodyReader(resp *http.Response) (io.ReadCloser, error) {
 		}, nil
 	default:
 		// Unknown encoding, fall back to raw body for compatibility.
+		log.Warn().Str("content_encoding", encoding).Msg("proxy response has unsupported content encoding, fallback to raw body")
 		return resp.Body, nil
 	}
 }
