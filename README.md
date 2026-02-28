@@ -1,6 +1,13 @@
 # iflow-go
 
-`iflow-go` 是 `iflow2api` 的 Go 语言实现，提供 OpenAI 兼容代理接口。
+`iflow-go` 可以把 `iflow cli` 的请求转换为 OpenAI 兼容请求。
+
+## 登录步骤
+
+1. 使用 `iflow cli` OAuth 方式登录账号
+2. 执行 `iflow-go token import ~/.iflow/settings.json` 导入账号，并获取该账号的 `API Key`
+3. 启动服务 `iflow-go serve`
+4. 接入 `cherry studio` `OpenClaw` 等应用
 
 ## 功能
 
@@ -69,15 +76,15 @@ iflow-go version
 
 ## 配置
 
-| 变量名 | 默认值 | 说明 |
-|---|---|---|
-| `IFLOW_HOST` | `0.0.0.0` | 服务监听地址 |
-| `IFLOW_PORT` | `28000` | 服务监听端口 |
-| `IFLOW_CONCURRENCY` | `1` | 并发数 |
-| `IFLOW_DATA_DIR` | `./data` | 数据目录 |
-| `IFLOW_LOG_LEVEL` | `info` | 日志级别（`debug`/`info`/`warn`/`error`） |
-| `IFLOW_UPSTREAM_PROXY` | 空 | 上游代理 |
-| `IFLOW_PRESERVE_REASONING_CONTENT` | `true` | 保留 `reasoning_content`，便于 Cherry Studio 等客户端展示思考 |
+| 变量名                             | 默认值    | 说明                                                          |
+| ---------------------------------- | --------- | ------------------------------------------------------------- |
+| `IFLOW_HOST`                       | `0.0.0.0` | 服务监听地址                                                  |
+| `IFLOW_PORT`                       | `28000`   | 服务监听端口                                                  |
+| `IFLOW_CONCURRENCY`                | `1`       | 并发数                                                        |
+| `IFLOW_DATA_DIR`                   | `./data`  | 数据目录                                                      |
+| `IFLOW_LOG_LEVEL`                  | `info`    | 日志级别（`debug`/`info`/`warn`/`error`）                     |
+| `IFLOW_UPSTREAM_PROXY`             | 空        | 上游代理                                                      |
+| `IFLOW_PRESERVE_REASONING_CONTENT` | `true`    | 保留 `reasoning_content`，便于 Cherry Studio 等客户端展示思考 |
 
 ## 测试
 
