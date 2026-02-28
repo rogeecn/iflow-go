@@ -1,0 +1,31 @@
+# Binaries
+bin/
+*.tmp
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Data directory
+data/
+!data/.gitkeep
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.idea/
+.gocache/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+*.out
+iflow2api/
