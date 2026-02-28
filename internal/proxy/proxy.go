@@ -3,6 +3,8 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -154,7 +156,7 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 	}
 	if resp.StatusCode >= http.StatusBadRequest {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readDecodedBody(resp)
 		err := fmt.Errorf("chat stream: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 		if p.telemetry != nil {
 			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
@@ -162,8 +164,17 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 		return nil, err
 	}
 
+	streamBody, err := decodedBodyReader(resp)
+	if err != nil {
+		_ = resp.Body.Close()
+		if p.telemetry != nil {
+			_ = p.telemetry.EmitRunError(ctx, model, traceID, err.Error())
+		}
+		return nil, fmt.Errorf("chat stream: decode response body: %w", err)
+	}
+
 	out := make(chan []byte, 32)
-	go p.forwardSSE(ctx, resp.Body, out)
+	go p.forwardSSE(ctx, streamBody, out)
 	return out, nil
 }
 
@@ -193,7 +204,7 @@ func (p *IFlowProxy) doChatRequest(ctx context.Context, headers map[string]strin
 	}
 	defer resp.Body.Close()
 
-	content, err := io.ReadAll(resp.Body)
+	content, err := readDecodedBody(resp)
 	if err != nil {
 		return nil, 0, fmt.Errorf("chat completions: read response: %w", err)
 	}
@@ -310,5 +321,58 @@ func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<
 		if err != nil {
 			return
 		}
+	}
+}
+
+type compositeReadCloser struct {
+	io.Reader
+	closers []io.Closer
+}
+
+func (c *compositeReadCloser) Close() error {
+	var firstErr error
+	for _, closer := range c.closers {
+		if err := closer.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func readDecodedBody(resp *http.Response) ([]byte, error) {
+	reader, err := decodedBodyReader(resp)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
+}
+
+func decodedBodyReader(resp *http.Response) (io.ReadCloser, error) {
+	encoding := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding")))
+	switch encoding {
+	case "":
+		return resp.Body, nil
+	case "gzip":
+		gr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("gzip reader: %w", err)
+		}
+		return &compositeReadCloser{
+			Reader:  gr,
+			closers: []io.Closer{gr, resp.Body},
+		}, nil
+	case "deflate":
+		zr, err := zlib.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("deflate reader: %w", err)
+		}
+		return &compositeReadCloser{
+			Reader:  zr,
+			closers: []io.Closer{zr, resp.Body},
+		}, nil
+	default:
+		// Unknown encoding, fall back to raw body for compatibility.
+		return resp.Body, nil
 	}
 }

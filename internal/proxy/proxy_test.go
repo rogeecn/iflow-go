@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -151,5 +153,46 @@ func TestModelsReturnsCopy(t *testing.T) {
 	models[0].ID = "mutated"
 	if Models[0].ID == "mutated" {
 		t.Fatal("Models() should return a copy, but global model list was mutated")
+	}
+}
+
+func TestChatCompletionsGzipResponse(t *testing.T) {
+	acct := &account.Account{
+		APIKey:  "sk-test",
+		BaseURL: "https://apis.iflow.cn/v1",
+	}
+	p := NewProxy(acct)
+	p.telemetry = nil
+
+	p.client = &http.Client{
+		Transport: proxyRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			var compressed bytes.Buffer
+			zw := gzip.NewWriter(&compressed)
+			_, _ = zw.Write([]byte(`{
+			  "id":"chatcmpl-1",
+			  "object":"chat.completion",
+			  "created":1700000000,
+			  "model":"glm-5",
+			  "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]
+			}`))
+			_ = zw.Close()
+
+			resp := newProxyResponse(http.StatusOK, compressed.String())
+			resp.Header.Set("Content-Encoding", "gzip")
+			return resp, nil
+		}),
+	}
+
+	resp, err := p.ChatCompletions(context.Background(), &types.ChatCompletionRequest{
+		Model: "glm-5",
+		Messages: []types.Message{
+			{Role: "user", Content: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletions gzip response error: %v", err)
+	}
+	if len(resp.Choices) != 1 || resp.Choices[0].Message == nil || resp.Choices[0].Message.Content != "ok" {
+		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
