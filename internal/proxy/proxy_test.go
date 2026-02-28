@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rogeecn/iflow-go/internal/account"
 	"github.com/rogeecn/iflow-go/pkg/types"
 )
@@ -153,6 +154,30 @@ func TestModelsReturnsCopy(t *testing.T) {
 	models[0].ID = "mutated"
 	if Models[0].ID == "mutated" {
 		t.Fatal("Models() should return a copy, but global model list was mutated")
+	}
+}
+
+func TestNewProxyTelemetryUserIDPrefersAPIKey(t *testing.T) {
+	p := NewProxy(&account.Account{APIKey: "sk-test"})
+	if p.telemetry == nil {
+		t.Fatal("telemetry should not be nil")
+	}
+
+	want := uuid.NewSHA1(uuid.NameSpaceDNS, []byte("sk-test")).String()
+	if p.telemetry.userID != want {
+		t.Fatalf("telemetry user id = %q, want %q", p.telemetry.userID, want)
+	}
+}
+
+func TestNewProxyTelemetryUserIDFallbackSessionID(t *testing.T) {
+	p := NewProxy(&account.Account{})
+	if p.telemetry == nil {
+		t.Fatal("telemetry should not be nil")
+	}
+
+	want := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(p.headerBuilder.sessionID)).String()
+	if p.telemetry.userID != want {
+		t.Fatalf("telemetry user id = %q, want %q", p.telemetry.userID, want)
 	}
 }
 

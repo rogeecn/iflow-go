@@ -14,7 +14,9 @@ run_case() {
   local case_name="$2"
   local payload
   local body_file
+  local header_file
   local status
+  local curl_exit=0
   local failed=0
 
   payload=$(cat <<JSON
@@ -29,20 +31,45 @@ JSON
 )
 
   body_file=$(mktemp)
-  status=$(curl -sS -N -o "${body_file}" -w "%{http_code}" \
-    -X POST "${URL}" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    --data "${payload}" || true)
+  header_file=$(mktemp)
 
   echo "[iflow-go test:${case_name}]"
   echo "URL: ${URL}"
-  echo "HTTP: ${status}"
   echo "--- response body ---"
-  cat "${body_file}"
-  echo
+
+  if [[ "${stream_flag}" == "true" ]]; then
+    # Stream mode: print chunks in real time while saving a copy for validation.
+    set +e
+    curl -sS -N -D "${header_file}" \
+      -X POST "${URL}" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer ${TOKEN}" \
+      --data "${payload}" \
+      | tee "${body_file}"
+    curl_exit=${PIPESTATUS[0]}
+    set -e
+
+    status=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' "${header_file}")
+    if [[ -z "${status}" ]]; then
+      status="000"
+    fi
+    echo
+  else
+    status=$(curl -sS -N -D "${header_file}" -o "${body_file}" -w "%{http_code}" \
+      -X POST "${URL}" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer ${TOKEN}" \
+      --data "${payload}" || true)
+    cat "${body_file}"
+    echo
+  fi
+
+  echo "HTTP: ${status}"
 
   if [[ "${status}" =~ ^[0-9]{3}$ ]] && (( status >= 400 )); then
+    failed=1
+  fi
+  if (( curl_exit != 0 )); then
     failed=1
   fi
 
@@ -54,6 +81,7 @@ JSON
   fi
 
   rm -f "${body_file}"
+  rm -f "${header_file}"
   return "${failed}"
 }
 

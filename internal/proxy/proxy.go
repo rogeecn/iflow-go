@@ -43,7 +43,11 @@ func NewProxy(acct *account.Account) *IFlowProxy {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	builder := NewHeaderBuilder(acct)
-	userID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(strings.TrimSpace(acct.APIKey)+builder.sessionID)).String()
+	telemetrySeed := strings.TrimSpace(acct.APIKey)
+	if telemetrySeed == "" {
+		telemetrySeed = builder.sessionID
+	}
+	userID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(telemetrySeed)).String()
 
 	p := &IFlowProxy{
 		account:       acct,
@@ -73,14 +77,9 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 
 	traceparent := p.headerBuilder.traceparentGenerator()
 	traceID := extractTraceID(traceparent)
+	parentObservationID := ""
 	if p.telemetry != nil {
-		if err := p.telemetry.EmitRunStarted(ctx, model, traceID); err != nil {
-			log.Debug().
-				Err(err).
-				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-				Str("model", model).
-				Msg("telemetry run_started failed")
-		}
+		parentObservationID = p.telemetry.EmitRunStarted(ctx, model, traceID)
 	}
 	log.Debug().
 		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
@@ -93,14 +92,8 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 
 	responseBody, statusCode, err := p.doChatRequest(ctx, headers, requestBody)
 	if err != nil {
-		if p.telemetry != nil {
-			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
-				log.Debug().
-					Err(emitErr).
-					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-					Str("model", model).
-					Msg("telemetry run_error failed")
-			}
+		if p.telemetry != nil && parentObservationID != "" {
+			p.telemetry.EmitRunError(ctx, model, traceID, parentObservationID, err.Error())
 		}
 		log.Error().
 			Err(err).
@@ -111,14 +104,8 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 	}
 	if statusCode >= http.StatusBadRequest {
 		err := fmt.Errorf("chat completions: status=%d body=%s", statusCode, strings.TrimSpace(string(responseBody)))
-		if p.telemetry != nil {
-			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
-				log.Debug().
-					Err(emitErr).
-					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-					Str("model", model).
-					Msg("telemetry run_error failed")
-			}
+		if p.telemetry != nil && parentObservationID != "" {
+			p.telemetry.EmitRunError(ctx, model, traceID, parentObservationID, err.Error())
 		}
 		log.Warn().
 			Int("status", statusCode).
@@ -131,14 +118,8 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 
 	var normalized map[string]interface{}
 	if err := json.Unmarshal(responseBody, &normalized); err != nil {
-		if p.telemetry != nil {
-			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
-				log.Debug().
-					Err(emitErr).
-					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-					Str("model", model).
-					Msg("telemetry run_error failed")
-			}
+		if p.telemetry != nil && parentObservationID != "" {
+			p.telemetry.EmitRunError(ctx, model, traceID, parentObservationID, err.Error())
 		}
 		return nil, fmt.Errorf("chat completions: decode response: %w", err)
 	}
@@ -177,14 +158,9 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 
 	traceparent := p.headerBuilder.traceparentGenerator()
 	traceID := extractTraceID(traceparent)
+	parentObservationID := ""
 	if p.telemetry != nil {
-		if err := p.telemetry.EmitRunStarted(ctx, model, traceID); err != nil {
-			log.Debug().
-				Err(err).
-				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-				Str("model", model).
-				Msg("telemetry run_started failed")
-		}
+		parentObservationID = p.telemetry.EmitRunStarted(ctx, model, traceID)
 	}
 	log.Debug().
 		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
@@ -210,14 +186,8 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		if p.telemetry != nil {
-			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
-				log.Debug().
-					Err(emitErr).
-					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-					Str("model", model).
-					Msg("telemetry run_error failed")
-			}
+		if p.telemetry != nil && parentObservationID != "" {
+			p.telemetry.EmitRunError(ctx, model, traceID, parentObservationID, err.Error())
 		}
 		log.Error().
 			Err(err).
@@ -230,14 +200,8 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 		defer resp.Body.Close()
 		body, _ := readDecodedBody(resp)
 		err := fmt.Errorf("chat stream: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
-		if p.telemetry != nil {
-			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
-				log.Debug().
-					Err(emitErr).
-					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-					Str("model", model).
-					Msg("telemetry run_error failed")
-			}
+		if p.telemetry != nil && parentObservationID != "" {
+			p.telemetry.EmitRunError(ctx, model, traceID, parentObservationID, err.Error())
 		}
 		log.Warn().
 			Int("status", resp.StatusCode).
@@ -251,14 +215,8 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 	streamBody, err := decodedBodyReader(resp)
 	if err != nil {
 		_ = resp.Body.Close()
-		if p.telemetry != nil {
-			if emitErr := p.telemetry.EmitRunError(ctx, model, traceID, err.Error()); emitErr != nil {
-				log.Debug().
-					Err(emitErr).
-					Str("account_uuid", strings.TrimSpace(p.account.UUID)).
-					Str("model", model).
-					Msg("telemetry run_error failed")
-			}
+		if p.telemetry != nil && parentObservationID != "" {
+			p.telemetry.EmitRunError(ctx, model, traceID, parentObservationID, err.Error())
 		}
 		log.Error().
 			Err(err).
