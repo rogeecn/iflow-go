@@ -29,6 +29,9 @@ Phase 6: CLI 完善       [x] 已完成
     │
     ▼
 Phase 7: 测试与文档     [x] 已完成
+    │
+    ▼
+Phase 8: 官方请求对齐   [x] 已完成
 ```
 
 ---
@@ -484,6 +487,46 @@ Phase 7: 测试与文档     [x] 已完成
 ### 验收标准
 - [x] 测试覆盖率 > 70%
 - [x] 文档完整清晰
+
+---
+
+## Phase 8: 官方请求对齐
+
+**目标**: 以官方 `iflow-cli 0.5.14` 为基线，建立请求对齐专项，逐步收敛协议、遥测和传输指纹差异。
+
+### 任务清单
+
+- [x] **P8-1** 建立官方行为基线
+  - 固定输入采集官方 CLI 的请求样本
+  - 记录 `headers/body/telemetry/retry/stream` 行为
+  - 定义动态字段白名单（如时间戳、trace id）
+
+- [x] **P8-2** 对齐协议层请求构造
+  - 校准 Header 条件逻辑（含 Aone 分支专有头）
+  - 校准模型特定 Body 规则（含 `iFlow-ROME-30BA3B`、域名特判字段）
+  - 校准 `session-id`、`conversation-id`、`traceparent` 生命周期
+
+- [x] **P8-3** 对齐遥测事件
+  - 补齐 `run_started`、`run_finished`、`run_error`
+  - 统一 `cliVer`、`nodeVersion`、`osVersion` 的来源策略
+  - 建立 telemetry 差异回放样本
+
+- [x] **P8-4** 对齐传输指纹
+  - 评估 Go `net/http` 与 Node/undici 差异
+  - 保留 Go 发送链路，移除 Node sidecar 方案
+  - 以单实现路径降低复杂度与维护风险
+
+- [x] **P8-5** 建立回归与灰度机制
+  - 增加基线回放测试与字段 diff 报告
+  - 增加对齐模式灰度开关
+  - 建立异常封禁回滚流程
+
+### 验收标准
+- [x] 固定样本下 Header/Body 与官方基线仅剩动态字段差异
+- [x] Telemetry 事件序列与字段结构对齐
+- [x] 对齐模式可按开关启停，不影响现有默认路径
+- [x] 通过 `go test ./...`
+- [x] 通过 `go vet ./...`
 
 ---
 

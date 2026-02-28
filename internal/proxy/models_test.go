@@ -28,7 +28,7 @@ func TestConfigureModelParamsGLM5(t *testing.T) {
 		"model": "glm-5",
 	}
 
-	got := ConfigureModelParams(body, "glm-5")
+	got := ConfigureModelParams(body, "glm-5", "https://apis.iflow.cn/v1", "session-1")
 
 	if got["enable_thinking"] != true {
 		t.Fatalf("enable_thinking = %v, want true", got["enable_thinking"])
@@ -56,7 +56,7 @@ func TestConfigureModelParamsQwen4BRemovesThinkingFields(t *testing.T) {
 		"chat_template_kwargs": map[string]interface{}{"enable_thinking": true},
 	}
 
-	got := ConfigureModelParams(body, "qwen2.5-4b-instruct")
+	got := ConfigureModelParams(body, "qwen2.5-4b-instruct", "https://apis.iflow.cn/v1", "session-1")
 
 	if _, ok := got["thinking_mode"]; ok {
 		t.Fatalf("thinking_mode should be removed, got %#v", got["thinking_mode"])
@@ -70,9 +70,61 @@ func TestConfigureModelParamsQwen4BRemovesThinkingFields(t *testing.T) {
 }
 
 func TestConfigureModelParamsThinkingBranch(t *testing.T) {
-	got := ConfigureModelParams(map[string]interface{}{}, "kimi-k2-thinking")
+	got := ConfigureModelParams(map[string]interface{}{}, "kimi-k2-thinking", "https://apis.iflow.cn/v1", "session-1")
 	if got["thinking_mode"] != true {
 		t.Fatalf("thinking_mode = %v, want true", got["thinking_mode"])
+	}
+}
+
+func TestConfigureModelParamsGLM46MapsToExpAndDefaults(t *testing.T) {
+	got := ConfigureModelParams(map[string]interface{}{}, "glm-4.6", "https://apis.iflow.cn/v1", "session-1")
+	if got["model"] != "glm-4.6-exp" {
+		t.Fatalf("model = %#v, want glm-4.6-exp", got["model"])
+	}
+	if got["temperature"] != 0.6 {
+		t.Fatalf("temperature = %#v, want 0.6", got["temperature"])
+	}
+	if got["max_new_tokens"] != 32000 {
+		t.Fatalf("max_new_tokens = %#v, want 32000", got["max_new_tokens"])
+	}
+}
+
+func TestConfigureModelParamsConvertsMaxTokens(t *testing.T) {
+	got := ConfigureModelParams(map[string]interface{}{"max_tokens": 256}, "glm-4.7", "https://apis.iflow.cn/v1", "session-1")
+	if _, ok := got["max_tokens"]; ok {
+		t.Fatalf("max_tokens should be removed, got %#v", got["max_tokens"])
+	}
+	if got["max_new_tokens"] != 256 {
+		t.Fatalf("max_new_tokens = %#v, want 256", got["max_new_tokens"])
+	}
+}
+
+func TestConfigureModelParamsROMEOverridesSampling(t *testing.T) {
+	got := ConfigureModelParams(map[string]interface{}{
+		"temperature": 0.1,
+		"top_p":       0.2,
+		"top_k":       5,
+	}, "iFlow-ROME-30BA3B", "https://apis.iflow.cn/v1", "session-1")
+
+	if got["temperature"] != 0.7 {
+		t.Fatalf("temperature = %#v, want 0.7", got["temperature"])
+	}
+	if got["top_p"] != 0.8 {
+		t.Fatalf("top_p = %#v, want 0.8", got["top_p"])
+	}
+	if got["top_k"] != 20 {
+		t.Fatalf("top_k = %#v, want 20", got["top_k"])
+	}
+}
+
+func TestConfigureModelParamsWhaleWaveInjectsExtendFields(t *testing.T) {
+	got := ConfigureModelParams(map[string]interface{}{}, "glm-4.6", "https://api.whale-wave.example/v1", "session-xyz")
+	extend, ok := got["extend_fields"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("extend_fields = %#v, want map", got["extend_fields"])
+	}
+	if extend["sessionId"] != "session-xyz" {
+		t.Fatalf("extend_fields.sessionId = %#v, want session-xyz", extend["sessionId"])
 	}
 }
 

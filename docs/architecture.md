@@ -344,10 +344,65 @@ require (
 
 ---
 
-## 11. 文档更新记录
+## 11. 官方请求对齐专项架构 (2026-02-28 新增)
+
+### 11.1 背景与目标
+
+当前代理实现基于 Python 版本迁移，核心逻辑可用，但与官方 `@iflow-ai/iflow-cli` 当前版本 (`0.5.14`) 存在行为差异。  
+专项目标是将上游交互从“功能兼容”提升为“请求行为对齐”，降低上游异常检测与封禁风险。
+
+对齐范围分为四层：
+1. 协议层：URL、Method、Header、Body 字段与条件逻辑
+2. 会话层：`session-id`、`conversation-id`、`traceparent` 生命周期
+3. 遥测层：`run_started/run_finished/run_error` 事件结构与字段来源
+4. 传输层：HTTP/TLS 客户端指纹（Go `net/http` 与 Node/undici 差异）
+
+### 11.2 对齐基线
+
+官方基线固定为本机已安装版本：
+- 包名：`@iflow-ai/iflow-cli`
+- 版本：`0.5.14`
+- 安装路径：`~/.local/node-v22.21.0/lib/node_modules/@iflow-ai/iflow-cli`
+
+所有对齐验收均以该版本实测行为为准，不以历史文档为准。
+
+### 11.3 新增组件
+
+在现有 `internal/proxy` 之外，新增“对齐验证链路”设计：
+
+1. Baseline Collector（基线采集）
+- 采集官方 CLI 在固定输入下的请求样本
+- 输出结构化样本：`headers/body/telemetry/retry/stream`
+
+2. Diff Runner（差异比对）
+- 将 iflow-go 请求样本与官方基线逐字段对比
+- 允许动态字段白名单（时间戳、trace id、observation id）
+
+3. Transport Adapter（传输适配）
+- 当前路径：Go `net/http`（保留）
+- 不再提供 Node sidecar 发送链路
+
+### 11.4 对齐策略
+
+1. 先协议后传输：先消除 Header/Body/Telemetry 差异，再处理网络指纹  
+2. 以白名单管理动态字段：避免将随机值误判为差异  
+3. 保持单实现链路：仅保留 Go 发送路径，降低运行复杂度与维护成本  
+
+### 11.5 风险与边界
+
+- 仅对齐应用层字段不足以解决风控问题，传输指纹仍可能触发检测  
+- 当前实现不包含 Node sidecar，传输层仍是 Go `net/http` 指纹  
+- 任何对齐逻辑更新必须同步更新 `docs/plan.md` 阶段任务
+
+---
+
+## 12. 文档更新记录
 
 | 日期 | 版本 | 变更说明 |
 |------|------|----------|
 | 2026-02-27 | v1.0 | 初始版本，基于 Python 项目调研 |
 | 2026-02-28 | v1.1 | 同步 OAuth 目录结构，明确 `client.go` 承担 Token 交换与登录流程 |
 | 2026-02-28 | v1.2 | 补充程序入口 `main.go`，对齐 Phase 6 CLI 实现结构 |
+| 2026-02-28 | v1.3 | 新增官方 `iflow-cli 0.5.14` 请求对齐专项架构与分层对齐策略 |
+| 2026-02-28 | v1.4 | 新增传输链路灰度配置（Node sidecar 开关、超时、失败回退）与回滚策略 |
+| 2026-02-28 | v1.5 | 移除 Node sidecar 相关实现与配置，回归单一 Go 发送链路 |

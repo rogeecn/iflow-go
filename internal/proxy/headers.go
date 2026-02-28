@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -12,7 +13,9 @@ import (
 )
 
 const (
-	IFLOWCLIUserAgent = "iFlow-Cli"
+	IFLOWCLIUserAgent   = "iFlow-Cli"
+	IFLOWCLIVersion     = "0.5.14"
+	aoneClientTypeValue = "iflow-cli"
 )
 
 type HeaderBuilder struct {
@@ -34,7 +37,7 @@ func NewHeaderBuilder(acct *account.Account) *HeaderBuilder {
 	}
 }
 
-func (b *HeaderBuilder) Build(stream bool) map[string]string {
+func (b *HeaderBuilder) Build(stream bool, traceparent string) map[string]string {
 	_ = stream
 	b.ensureIDs()
 
@@ -43,11 +46,13 @@ func (b *HeaderBuilder) Build(stream bool) map[string]string {
 		"user-agent":      IFLOWCLIUserAgent,
 		"session-id":      b.sessionID,
 		"conversation-id": b.conversationID,
-		"accept":          "*/*",
-		"accept-language": "*",
-		"sec-fetch-mode":  "cors",
-		"accept-encoding": "br, gzip, deflate",
-		"traceparent":     b.traceparentGenerator(),
+	}
+	if strings.TrimSpace(traceparent) != "" {
+		headers["traceparent"] = traceparent
+	}
+	if b.isAoneEndpoint() {
+		headers["X-Client-Type"] = aoneClientTypeValue
+		headers["X-Client-Version"] = IFLOWCLIVersion
 	}
 
 	apiKey := b.apiKey()
@@ -85,6 +90,13 @@ func (b *HeaderBuilder) ensureIDs() {
 	}
 }
 
+func (b *HeaderBuilder) isAoneEndpoint() bool {
+	if b == nil || b.account == nil {
+		return false
+	}
+	return isAoneEndpoint(b.account.BaseURL)
+}
+
 func generateTraceparent() string {
 	return fmt.Sprintf("00-%s-%s-01", randomHex(16), randomHex(8))
 }
@@ -99,4 +111,27 @@ func randomHex(bytesN int) string {
 		return strings.Repeat("0", bytesN*2)
 	}
 	return hex.EncodeToString(buf)
+}
+
+func isAoneEndpoint(baseURL string) bool {
+	host := normalizedHost(baseURL)
+	if host == "" {
+		return false
+	}
+
+	return strings.Contains(host, "alibaba-inc.com") || strings.Contains(host, "aone")
+}
+
+func normalizedHost(rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err == nil && parsed.Host != "" {
+		return strings.ToLower(parsed.Hostname())
+	}
+
+	return strings.ToLower(strings.TrimSpace(trimmed))
 }

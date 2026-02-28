@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -14,14 +15,16 @@ import (
 )
 
 const (
-	mmstatGMBase         = "https://gm.mmstat.com"
-	mmstatVGIFURL        = "https://log.mmstat.com/v.gif"
-	iflowCLIVersion      = "0.5.13"
-	nodeVersionEmulated  = "v22.22.0"
-	platformTypePC       = "pc"
-	telemetryUserAgent   = "node"
-	telemetryLanguage    = "zh_CN.UTF-8"
-	telemetryContentType = "application/json"
+	mmstatGMBase              = "https://gm.mmstat.com"
+	mmstatVGIFURL             = "https://log.mmstat.com/v.gif"
+	defaultTelemetryNodeVer   = "v22.21.0"
+	platformTypePC            = "pc"
+	telemetryLanguage         = "en_US.UTF-8"
+	telemetryContentType      = "application/json"
+	telemetrySPMCnt           = "a2110qe.33796382.46182003.0.0"
+	telemetrySIDX             = "aplusSidex"
+	telemetryCKX              = "aplusCkx"
+	telemetryDefaultPageTitle = "iFlow-CLI"
 )
 
 type Telemetry struct {
@@ -29,6 +32,8 @@ type Telemetry struct {
 	sessionID      string
 	conversationID string
 	client         *http.Client
+	nodeVersion    string
+	cna            string
 }
 
 func NewTelemetry(userID, sessionID, conversationID string) *Telemetry {
@@ -37,6 +42,8 @@ func NewTelemetry(userID, sessionID, conversationID string) *Telemetry {
 		sessionID:      strings.TrimSpace(sessionID),
 		conversationID: strings.TrimSpace(conversationID),
 		client:         &http.Client{Timeout: 10 * time.Second},
+		nodeVersion:    telemetryNodeVersion(),
+		cna:            telemetryCNAToken(),
 	}
 }
 
@@ -47,9 +54,7 @@ func (t *Telemetry) EmitRunStarted(ctx context.Context, model, traceID string) s
 
 	observationID := randomHex(8)
 	gokey := fmt.Sprintf(
-		"pid=iflow&sam=iflow.cli.%s.%s&trace_id=%s&session_id=%s&conversation_id=%s&observation_id=%s&model=%s&tool=&user_id=%s",
-		url.QueryEscape(t.conversationID),
-		url.QueryEscape(traceID),
+		"pid=iflow&sam=&trace_id=%s&session_id=%s&conversation_id=%s&observation_id=%s&model=%s&tool=&user_id=%s",
 		url.QueryEscape(traceID),
 		url.QueryEscape(t.sessionID),
 		url.QueryEscape(t.conversationID),
@@ -61,11 +66,40 @@ func (t *Telemetry) EmitRunStarted(ctx context.Context, model, traceID string) s
 	if err := t.postGM(ctx, "//aitrack.lifecycle.run_started", gokey); err != nil {
 		log.Debug().Err(err).Msg("mmstat gm event failed (//aitrack.lifecycle.run_started)")
 	}
+
+	return observationID
+}
+
+func (t *Telemetry) EmitRunFinished(ctx context.Context, model, traceID, parentObservationID string, duration time.Duration) {
+	if t == nil || t.client == nil {
+		return
+	}
+
+	durationMillis := duration.Milliseconds()
+	if durationMillis < 0 {
+		durationMillis = 0
+	}
+
+	observationID := randomHex(8)
+	gokey := fmt.Sprintf(
+		"pid=iflow&sam=&trace_id=%s&session_id=%s&conversation_id=%s&observation_id=%s&parent_observation_id=%s&duration=%d&model=%s&tool=&sessionId=%s&user_id=%s",
+		url.QueryEscape(traceID),
+		url.QueryEscape(t.sessionID),
+		url.QueryEscape(t.conversationID),
+		url.QueryEscape(observationID),
+		url.QueryEscape(parentObservationID),
+		durationMillis,
+		url.QueryEscape(model),
+		url.QueryEscape(t.sessionID),
+		url.QueryEscape(t.userID),
+	)
+
+	if err := t.postGM(ctx, "//aitrack.lifecycle.run_finished", gokey); err != nil {
+		log.Debug().Err(err).Msg("mmstat gm event failed (//aitrack.lifecycle.run_finished)")
+	}
 	if err := t.postVGIF(ctx); err != nil {
 		log.Debug().Err(err).Msg("mmstat v.gif failed")
 	}
-
-	return observationID
 }
 
 func (t *Telemetry) EmitRunError(ctx context.Context, model, traceID, parentObservationID, errMsg string) {
@@ -87,10 +121,10 @@ func (t *Telemetry) EmitRunError(ctx context.Context, model, traceID, parentObse
 		url.QueryEscape(t.userID),
 		url.QueryEscape(errMsg),
 		url.QueryEscape(model),
-		url.QueryEscape(iflowCLIVersion),
+		url.QueryEscape(IFLOWCLIVersion),
 		url.QueryEscape(strings.ToLower(systemName)),
 		url.QueryEscape(runtime.GOARCH),
-		url.QueryEscape(nodeVersionEmulated),
+		url.QueryEscape(t.nodeVersion),
 		url.QueryEscape(runtimePlatformVersion()),
 	)
 
@@ -107,11 +141,6 @@ func (t *Telemetry) postGM(ctx context.Context, path, gokey string) error {
 	}
 
 	req.Header.Set("Content-Type", telemetryContentType)
-	req.Header.Set("accept", "*/*")
-	req.Header.Set("accept-language", "*")
-	req.Header.Set("sec-fetch-mode", "cors")
-	req.Header.Set("user-agent", telemetryUserAgent)
-	req.Header.Set("accept-encoding", "br, gzip, deflate")
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -134,34 +163,14 @@ func (t *Telemetry) postVGIF(ctx context.Context) error {
 		o = "win"
 	}
 
-	form := url.Values{}
-	form.Set("logtype", "1")
-	form.Set("title", "iFlow-CLI")
-	form.Set("pre", "-")
-	form.Set("platformType", platformTypePC)
-	form.Set("device_model", systemName)
-	form.Set("os", systemName)
-	form.Set("o", o)
-	form.Set("node_version", nodeVersionEmulated)
-	form.Set("language", telemetryLanguage)
-	form.Set("interactive", "0")
-	form.Set("iFlowEnv", "")
-	form.Set("_g_encode", "utf-8")
-	form.Set("pid", "iflow")
-	form.Set("_user_id", t.userID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mmstatVGIFURL, strings.NewReader(form.Encode()))
+	body := t.vgifBody(systemName, o)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mmstatVGIFURL, strings.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("telemetry request: %w", err)
 	}
 
 	req.Header.Set("content-type", "text/plain;charset=UTF-8")
 	req.Header.Set("cache-control", "no-cache")
-	req.Header.Set("accept", "*/*")
-	req.Header.Set("accept-language", "*")
-	req.Header.Set("sec-fetch-mode", "cors")
-	req.Header.Set("user-agent", telemetryUserAgent)
-	req.Header.Set("accept-encoding", "br, gzip, deflate")
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -192,4 +201,68 @@ func runtimeSystemName() string {
 
 func runtimePlatformVersion() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
+}
+
+func telemetryNodeVersion() string {
+	if fromEnv := strings.TrimSpace(os.Getenv("IFLOW_NODE_VERSION")); fromEnv != "" {
+		return fromEnv
+	}
+	return defaultTelemetryNodeVer
+}
+
+func telemetryCNAToken() string {
+	token := randomHex(12)
+	if token == "" {
+		return "iflow-go"
+	}
+	return token
+}
+
+type queryEntry struct {
+	key      string
+	value    string
+	bareOnly bool
+}
+
+func (t *Telemetry) vgifBody(systemName, osToken string) string {
+	cacheToken := randomHex(3)
+	if cacheToken == "" {
+		cacheToken = "000000"
+	}
+
+	entries := []queryEntry{
+		{key: "logtype", value: "1"},
+		{key: "title", value: telemetryDefaultPageTitle},
+		{key: "pre", value: "-"},
+		{key: "scr", value: "-"},
+		{key: "cna", value: t.cna},
+		{key: "spm-cnt", value: telemetrySPMCnt},
+		{key: "aplus", bareOnly: true},
+		{key: "pid", value: "iflow"},
+		{key: "_user_id", value: t.userID},
+		{key: "cache", value: cacheToken},
+		{key: "sidx", value: telemetrySIDX},
+		{key: "ckx", value: telemetryCKX},
+		{key: "platformType", value: platformTypePC},
+		{key: "device_model", value: systemName},
+		{key: "os", value: systemName},
+		{key: "o", value: osToken},
+		{key: "node_version", value: t.nodeVersion},
+		{key: "language", value: telemetryLanguage},
+		{key: "interactive", value: "0"},
+		{key: "iFlowEnv", value: ""},
+		{key: "_g_encode", value: "utf-8"},
+	}
+
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		escapedKey := url.QueryEscape(entry.key)
+		if entry.bareOnly {
+			parts = append(parts, escapedKey)
+			continue
+		}
+		parts = append(parts, escapedKey+"="+url.QueryEscape(entry.value))
+	}
+
+	return strings.Join(parts, "&")
 }

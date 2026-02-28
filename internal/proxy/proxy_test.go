@@ -38,9 +38,6 @@ func TestChatCompletions(t *testing.T) {
 	p.headerBuilder.sessionID = "session-fixed"
 	p.headerBuilder.conversationID = "conversation-fixed"
 	p.headerBuilder.now = func() time.Time { return time.UnixMilli(1700000000000) }
-	p.headerBuilder.traceparentGenerator = func() string {
-		return "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
-	}
 	p.telemetry = nil
 
 	p.client = &http.Client{
@@ -57,6 +54,9 @@ func TestChatCompletions(t *testing.T) {
 			if req.Header.Get("x-iflow-signature") == "" {
 				t.Fatal("x-iflow-signature should not be empty")
 			}
+			if req.Header.Get("traceparent") != "" {
+				t.Fatalf("traceparent = %q, want empty", req.Header.Get("traceparent"))
+			}
 
 			bodyRaw, err := io.ReadAll(req.Body)
 			if err != nil {
@@ -65,6 +65,9 @@ func TestChatCompletions(t *testing.T) {
 			body := string(bodyRaw)
 			if !strings.Contains(body, `"enable_thinking":true`) {
 				t.Fatalf("request body missing glm-5 params: %s", body)
+			}
+			if !strings.Contains(body, `"max_new_tokens":32000`) {
+				t.Fatalf("request body missing max_new_tokens default: %s", body)
 			}
 
 			return newProxyResponse(http.StatusOK, `{
@@ -343,5 +346,59 @@ func TestChatCompletionsGzipResponse(t *testing.T) {
 	}
 	if len(resp.Choices) != 1 || resp.Choices[0].Message == nil || resp.Choices[0].Message.Content != "ok" {
 		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
+func TestChatCompletionsTelemetrySequence(t *testing.T) {
+	acct := &account.Account{
+		APIKey:  "sk-test",
+		BaseURL: "https://apis.iflow.cn/v1",
+	}
+	p := NewProxy(acct)
+	p.headerBuilder.sessionID = "session-fixed"
+	p.headerBuilder.conversationID = "conversation-fixed"
+	p.headerBuilder.now = func() time.Time { return time.UnixMilli(1700000000000) }
+
+	telemetryURLs := make([]string, 0, 3)
+	p.telemetry.client = &http.Client{
+		Transport: proxyRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			telemetryURLs = append(telemetryURLs, req.URL.String())
+			return newProxyResponse(http.StatusOK, `{"ok":true}`), nil
+		}),
+	}
+
+	p.client = &http.Client{
+		Transport: proxyRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return newProxyResponse(http.StatusOK, `{
+			  "id":"chatcmpl-1",
+			  "object":"chat.completion",
+			  "created":1700000000,
+			  "model":"glm-5",
+			  "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]
+			}`), nil
+		}),
+	}
+
+	_, err := p.ChatCompletions(context.Background(), &types.ChatCompletionRequest{
+		Model: "glm-5",
+		Messages: []types.Message{
+			{Role: "user", Content: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletions error: %v", err)
+	}
+
+	if len(telemetryURLs) != 3 {
+		t.Fatalf("telemetry requests = %d, want 3", len(telemetryURLs))
+	}
+	if telemetryURLs[0] != "https://gm.mmstat.com//aitrack.lifecycle.run_started" {
+		t.Fatalf("telemetry[0] = %s", telemetryURLs[0])
+	}
+	if telemetryURLs[1] != "https://gm.mmstat.com//aitrack.lifecycle.run_finished" {
+		t.Fatalf("telemetry[1] = %s", telemetryURLs[1])
+	}
+	if telemetryURLs[2] != "https://log.mmstat.com/v.gif" {
+		t.Fatalf("telemetry[2] = %s", telemetryURLs[2])
 	}
 }

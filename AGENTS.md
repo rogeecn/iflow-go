@@ -242,6 +242,8 @@ go mod verify
 | 2026-02-28 | 同步 OAuth 目录结构说明，`client.go` 承担 Token 交换与登录流程 | `docs/architecture.md` |
 | 2026-02-28 | 补充根目录 `main.go` 程序入口，统一 CLI 启动路径 | `docs/architecture.md` |
 | 2026-02-28 | 新增 `IFLOW_PRESERVE_REASONING_CONTENT`，支持按配置保留 `reasoning_content` 字段 | `docs/architecture.md` |
+| 2026-02-28 | 新增官方 `iflow-cli 0.5.14` 请求对齐专项架构，定义分层对齐与传输指纹策略 | `docs/architecture.md` |
+| 2026-02-28 | 移除 Node sidecar 发送链路，回归单一 Go 传输实现 | `docs/architecture.md` |
 
 ---
 
@@ -259,6 +261,7 @@ go mod verify
 | Phase 5: HTTP 服务器 | ✅ 已完成 | 2026-02-28 | 2026-02-28 |
 | Phase 6: CLI 完善 | ✅ 已完成 | 2026-02-28 | 2026-02-28 |
 | Phase 7: 测试与文档 | ✅ 已完成 | 2026-02-28 | 2026-02-28 |
+| Phase 8: 官方请求对齐 | ✅ 已完成 | 2026-02-28 | 2026-02-28 |
 
 状态说明:
 - ⏳ 待开始

@@ -29,9 +29,22 @@ var Models = []ModelConfig{
 	{ID: "qwen-vl-max", Name: "Qwen-VL-Max", Description: "通义千问 VL Max 视觉模型", SupportsVision: true},
 }
 
-func ConfigureModelParams(body map[string]interface{}, model string) map[string]interface{} {
+func ConfigureModelParams(body map[string]interface{}, model, baseURL, sessionID string) map[string]interface{} {
 	configured := cloneMap(body)
 	modelLower := strings.ToLower(strings.TrimSpace(model))
+
+	if strings.EqualFold(strings.TrimSpace(model), "glm-4.6") {
+		configured["model"] = "glm-4.6-exp"
+	}
+
+	if maxTokens, ok := configured["max_tokens"]; ok {
+		if _, exists := configured["max_new_tokens"]; !exists {
+			configured["max_new_tokens"] = maxTokens
+		}
+		delete(configured, "max_tokens")
+	}
+	setIfAbsent(configured, "temperature", 0.6)
+	setIfAbsent(configured, "max_new_tokens", 32000)
 
 	switch {
 	case strings.HasPrefix(modelLower, "deepseek"):
@@ -57,6 +70,14 @@ func ConfigureModelParams(body map[string]interface{}, model string) map[string]
 		setIfAbsent(configured, "chat_template_kwargs", map[string]interface{}{"enable_thinking": true})
 	case strings.Contains(modelLower, "reasoning"):
 		setIfAbsent(configured, "reasoning", true)
+	}
+	if strings.EqualFold(strings.TrimSpace(model), "iFlow-ROME-30BA3B") {
+		configured["temperature"] = 0.7
+		configured["top_p"] = 0.8
+		configured["top_k"] = 20
+	}
+	if shouldInjectSessionExtendFields(baseURL) {
+		attachExtendFieldSessionID(configured, sessionID)
 	}
 
 	if qwen4BPattern.MatchString(modelLower) {
@@ -129,4 +150,29 @@ func valuePresent(value interface{}) bool {
 		return s != ""
 	}
 	return true
+}
+
+func shouldInjectSessionExtendFields(baseURL string) bool {
+	host := normalizedHost(baseURL)
+	if host == "" {
+		return false
+	}
+	return strings.Contains(host, "whale-wave")
+}
+
+func attachExtendFieldSessionID(body map[string]interface{}, sessionID string) {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return
+	}
+
+	extendFields, ok := body["extend_fields"].(map[string]interface{})
+	if !ok || extendFields == nil {
+		extendFields = map[string]interface{}{}
+		body["extend_fields"] = extendFields
+	}
+	if _, exists := extendFields["sessionId"]; exists {
+		return
+	}
+	extendFields["sessionId"] = trimmedSessionID
 }

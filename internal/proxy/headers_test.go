@@ -28,11 +28,8 @@ func TestHeaderBuilderBuild(t *testing.T) {
 	builder.sessionID = "session-123"
 	builder.conversationID = "conversation-123"
 	builder.now = func() time.Time { return time.UnixMilli(1700000000000) }
-	builder.traceparentGenerator = func() string {
-		return "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
-	}
 
-	headers := builder.Build(false)
+	headers := builder.Build(false, "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01")
 
 	if headers["Content-Type"] != "application/json" {
 		t.Fatalf("Content-Type = %q", headers["Content-Type"])
@@ -48,9 +45,6 @@ func TestHeaderBuilderBuild(t *testing.T) {
 	}
 	if headers["conversation-id"] != "conversation-123" {
 		t.Fatalf("conversation-id = %q", headers["conversation-id"])
-	}
-	if headers["accept"] != "*/*" {
-		t.Fatalf("accept = %q", headers["accept"])
 	}
 	if headers["traceparent"] != "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01" {
 		t.Fatalf("traceparent = %q", headers["traceparent"])
@@ -68,9 +62,8 @@ func TestHeaderBuilderBuild(t *testing.T) {
 func TestHeaderBuilderBuildWithoutAPIKey(t *testing.T) {
 	builder := NewHeaderBuilder(&account.Account{APIKey: "   "})
 	builder.now = func() time.Time { return time.UnixMilli(1700000000000) }
-	builder.traceparentGenerator = func() string { return "trace" }
 
-	headers := builder.Build(true)
+	headers := builder.Build(true, "")
 
 	if _, ok := headers["Authorization"]; ok {
 		t.Fatalf("Authorization should be omitted, got %q", headers["Authorization"])
@@ -81,8 +74,25 @@ func TestHeaderBuilderBuildWithoutAPIKey(t *testing.T) {
 	if _, ok := headers["x-iflow-timestamp"]; ok {
 		t.Fatalf("x-iflow-timestamp should be omitted, got %q", headers["x-iflow-timestamp"])
 	}
-	if headers["traceparent"] != "trace" {
-		t.Fatalf("traceparent = %q", headers["traceparent"])
+	if _, ok := headers["traceparent"]; ok {
+		t.Fatalf("traceparent should be omitted, got %q", headers["traceparent"])
+	}
+}
+
+func TestHeaderBuilderBuildAoneHeaders(t *testing.T) {
+	builder := NewHeaderBuilder(&account.Account{
+		APIKey:  "sk-test-key",
+		BaseURL: "https://ducky.code.alibaba-inc.com/v1",
+	})
+	builder.now = func() time.Time { return time.UnixMilli(1700000000000) }
+
+	headers := builder.Build(false, "")
+
+	if headers["X-Client-Type"] != "iflow-cli" {
+		t.Fatalf("X-Client-Type = %q", headers["X-Client-Type"])
+	}
+	if headers["X-Client-Version"] != IFLOWCLIVersion {
+		t.Fatalf("X-Client-Version = %q", headers["X-Client-Version"])
 	}
 }
 

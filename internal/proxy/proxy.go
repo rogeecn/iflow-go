@@ -79,10 +79,14 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 	if req != nil {
 		model = req.Model
 	}
-	requestBody = ConfigureModelParams(requestBody, model)
+	requestBody = ConfigureModelParams(requestBody, model, p.baseURL, p.headerBuilder.sessionID)
 
-	traceparent := p.headerBuilder.traceparentGenerator()
-	traceID := extractTraceID(traceparent)
+	traceparent := ""
+	traceID := ""
+	if traceparent != "" {
+		traceID = extractTraceID(traceparent)
+	}
+	startedAt := time.Now()
 	parentObservationID := ""
 	if p.telemetry != nil {
 		parentObservationID = p.telemetry.EmitRunStarted(ctx, model, traceID)
@@ -93,8 +97,7 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 		Bool("stream", false).
 		Msg("proxy chat request started")
 
-	headers := p.headerBuilder.Build(false)
-	headers["traceparent"] = traceparent
+	headers := p.headerBuilder.Build(false, traceparent)
 
 	responseBody, statusCode, err := p.doChatRequest(ctx, headers, requestBody)
 	if err != nil {
@@ -145,6 +148,9 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
 		Str("model", model).
 		Msg("proxy chat request completed")
+	if p.telemetry != nil && parentObservationID != "" {
+		p.telemetry.EmitRunFinished(ctx, model, traceID, parentObservationID, time.Since(startedAt))
+	}
 
 	return &parsed, nil
 }
@@ -159,11 +165,15 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 	if req != nil {
 		model = req.Model
 	}
-	requestBody = ConfigureModelParams(requestBody, model)
+	requestBody = ConfigureModelParams(requestBody, model, p.baseURL, p.headerBuilder.sessionID)
 	requestBody["stream"] = true
 
-	traceparent := p.headerBuilder.traceparentGenerator()
-	traceID := extractTraceID(traceparent)
+	traceparent := ""
+	traceID := ""
+	if traceparent != "" {
+		traceID = extractTraceID(traceparent)
+	}
+	startedAt := time.Now()
 	parentObservationID := ""
 	if p.telemetry != nil {
 		parentObservationID = p.telemetry.EmitRunStarted(ctx, model, traceID)
@@ -174,8 +184,7 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 		Bool("stream", true).
 		Msg("proxy chat stream request started")
 
-	headers := p.headerBuilder.Build(true)
-	headers["traceparent"] = traceparent
+	headers := p.headerBuilder.Build(true, traceparent)
 
 	reqBody, err := json.Marshal(requestBody)
 	if err != nil {
@@ -233,7 +242,7 @@ func (p *IFlowProxy) ChatCompletionsStream(ctx context.Context, req *types.ChatC
 	}
 
 	out := make(chan []byte, 32)
-	go p.forwardSSE(ctx, streamBody, out)
+	go p.forwardSSE(ctx, streamBody, out, model, traceID, parentObservationID, startedAt)
 	log.Debug().
 		Str("account_uuid", strings.TrimSpace(p.account.UUID)).
 		Str("model", model).
@@ -364,7 +373,7 @@ func normalizeStreamChunk(chunk map[string]interface{}, preserveReasoning bool) 
 	return chunk
 }
 
-func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<- []byte) {
+func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<- []byte, model, traceID, parentObservationID string, startedAt time.Time) {
 	defer close(out)
 	defer in.Close()
 
@@ -405,6 +414,9 @@ func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<
 				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
 				Int("chunks", chunkCount).
 				Msg("proxy sse forward reached eof")
+			if p.telemetry != nil && parentObservationID != "" {
+				p.telemetry.EmitRunFinished(ctx, model, traceID, parentObservationID, time.Since(startedAt))
+			}
 			return
 		}
 		if err != nil {
@@ -413,6 +425,9 @@ func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<
 				Str("account_uuid", strings.TrimSpace(p.account.UUID)).
 				Int("chunks", chunkCount).
 				Msg("proxy sse forward stopped on read error")
+			if p.telemetry != nil && parentObservationID != "" {
+				p.telemetry.EmitRunError(ctx, model, traceID, parentObservationID, err.Error())
+			}
 			return
 		}
 	}

@@ -14,6 +14,7 @@
 - [x] Phase 5: HTTP 服务器
 - [x] Phase 6: CLI 完善
 - [x] Phase 7: 测试与文档
+- [x] Phase 8: 官方请求对齐
 
 ## 3. 遇到的问题和解决方案
 
@@ -23,6 +24,8 @@
    解决方案：补充 `github.com/spf13/cobra` 依赖并执行 `go mod tidy`。
 3. SSE 测试中日志中间件包装后丢失 `Flush` 能力  
    解决方案：在 `statusRecorder` 中补充 `Flush()` 透传实现。
+4. 官方 CLI `0.5.14` 与 Go 实现在请求字段、遥测事件、传输链路存在偏差  
+   解决方案：新增 Phase 8，对齐 Header/Body/Telemetry，并保留单一 Go 发送链路降低复杂度。
 
 ## 4. 验收结果
 
@@ -34,4 +37,5 @@
 ## 5. 备注
 
 - 已新增 `README.md` 和 `docs/api.md`，补齐使用文档与 API 示例。
+- 已完成官方对齐专项：基线采集、动态白名单、协议层、遥测层、传输层灰度、回滚流程。
 - 已同步更新 `docs/architecture.md`、`docs/plan.md`、`AGENTS.md` 阶段状态。
