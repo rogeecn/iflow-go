@@ -24,14 +24,19 @@ const (
 )
 
 type IFlowProxy struct {
-	account       *account.Account
-	client        *http.Client
-	baseURL       string
-	headerBuilder *HeaderBuilder
-	telemetry     *Telemetry
+	account                  *account.Account
+	client                   *http.Client
+	baseURL                  string
+	headerBuilder            *HeaderBuilder
+	telemetry                *Telemetry
+	preserveReasoningContent bool
 }
 
 func NewProxy(acct *account.Account) *IFlowProxy {
+	return NewProxyWithReasoning(acct, false)
+}
+
+func NewProxyWithReasoning(acct *account.Account, preserveReasoningContent bool) *IFlowProxy {
 	if acct == nil {
 		acct = &account.Account{}
 	}
@@ -50,11 +55,12 @@ func NewProxy(acct *account.Account) *IFlowProxy {
 	userID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(telemetrySeed)).String()
 
 	p := &IFlowProxy{
-		account:       acct,
-		client:        &http.Client{Timeout: 300 * time.Second},
-		baseURL:       baseURL,
-		headerBuilder: builder,
-		telemetry:     NewTelemetry(userID, builder.sessionID, builder.conversationID),
+		account:                  acct,
+		client:                   &http.Client{Timeout: 300 * time.Second},
+		baseURL:                  baseURL,
+		headerBuilder:            builder,
+		telemetry:                NewTelemetry(userID, builder.sessionID, builder.conversationID),
+		preserveReasoningContent: preserveReasoningContent,
 	}
 	log.Debug().
 		Str("account_uuid", strings.TrimSpace(acct.UUID)).
@@ -123,7 +129,7 @@ func (p *IFlowProxy) ChatCompletions(ctx context.Context, req *types.ChatComplet
 		}
 		return nil, fmt.Errorf("chat completions: decode response: %w", err)
 	}
-	normalized = NormalizeResponse(normalized, false)
+	normalized = NormalizeResponse(normalized, p.preserveReasoningContent)
 	ensureUsage(normalized)
 
 	normalizedBytes, err := json.Marshal(normalized)
@@ -323,7 +329,7 @@ func extractTraceID(traceparent string) string {
 	return randomHex(16)
 }
 
-func normalizeStreamChunk(chunk map[string]interface{}) map[string]interface{} {
+func normalizeStreamChunk(chunk map[string]interface{}, preserveReasoning bool) map[string]interface{} {
 	choices, ok := chunk["choices"].([]interface{})
 	if !ok {
 		return chunk
@@ -342,6 +348,9 @@ func normalizeStreamChunk(chunk map[string]interface{}) map[string]interface{} {
 		_, hasContent := delta["content"]
 		reasoning, hasReasoning := delta["reasoning_content"]
 		reasoningText, reasoningTextOK := reasoning.(string)
+		if preserveReasoning {
+			continue
+		}
 		if !hasContent && hasReasoning && reasoningTextOK && reasoningText != "" {
 			delta["content"] = reasoningText
 			delete(delta, "reasoning_content")
@@ -371,7 +380,7 @@ func (p *IFlowProxy) forwardSSE(ctx context.Context, in io.ReadCloser, out chan<
 				if dataPart != "" && dataPart != "[DONE]" {
 					var chunk map[string]interface{}
 					if jsonErr := json.Unmarshal([]byte(dataPart), &chunk); jsonErr == nil {
-						chunk = normalizeStreamChunk(chunk)
+						chunk = normalizeStreamChunk(chunk, p.preserveReasoningContent)
 						if chunkRaw, marshalErr := json.Marshal(chunk); marshalErr == nil {
 							payload = []byte("data: " + string(chunkRaw) + "\n\n")
 						}

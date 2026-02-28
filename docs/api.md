@@ -160,4 +160,6 @@ data: [DONE]
 
 - 对于只返回 `reasoning_content` 的上游模型，服务会自动归一化到 `content`
 - 流式响应也会做同样的兼容处理
+- 默认保留 `reasoning_content` 字段（`IFLOW_PRESERVE_REASONING_CONTENT=true`），且不会再镜像到 `content`，便于 Cherry Studio 展示独立思考过程
+- 若需兼容仅识别 `content` 的客户端，可设置 `IFLOW_PRESERVE_REASONING_CONTENT=false`
 - `/v1/models` 返回本地内置模型清单，不依赖上游 `/models` 接口

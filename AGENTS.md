@@ -229,6 +229,7 @@ go mod verify
 | `IFLOW_DATA_DIR` | `./data` | 数据目录 |
 | `IFLOW_LOG_LEVEL` | `info` | 日志级别 |
 | `IFLOW_UPSTREAM_PROXY` | (空) | 上游代理 |
+| `IFLOW_PRESERVE_REASONING_CONTENT` | `true` | 是否保留 `reasoning_content` 字段 |
 
 ---
 
@@ -240,6 +241,7 @@ go mod verify
 |------|----------|----------|
 | 2026-02-28 | 同步 OAuth 目录结构说明，`client.go` 承担 Token 交换与登录流程 | `docs/architecture.md` |
 | 2026-02-28 | 补充根目录 `main.go` 程序入口，统一 CLI 启动路径 | `docs/architecture.md` |
+| 2026-02-28 | 新增 `IFLOW_PRESERVE_REASONING_CONTENT`，支持按配置保留 `reasoning_content` 字段 | `docs/architecture.md` |
 
 ---
 

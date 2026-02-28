@@ -124,6 +124,30 @@ func TestNormalizeResponsePreservesReasoningWhenRequested(t *testing.T) {
 	}
 }
 
+func TestNormalizeResponsePreserveDoesNotMirrorReasoningToContent(t *testing.T) {
+	response := map[string]interface{}{
+		"choices": []interface{}{
+			map[string]interface{}{
+				"message": map[string]interface{}{
+					"content":           nil,
+					"reasoning_content": "step-by-step",
+				},
+			},
+		},
+	}
+
+	got := NormalizeResponse(response, true)
+	choices := got["choices"].([]interface{})
+	msg := choices[0].(map[string]interface{})["message"].(map[string]interface{})
+
+	if msg["content"] != nil {
+		t.Fatalf("content = %#v, want nil", msg["content"])
+	}
+	if msg["reasoning_content"] != "step-by-step" {
+		t.Fatalf("reasoning_content = %#v, want step-by-step", msg["reasoning_content"])
+	}
+}
+
 func TestNormalizeResponseDeletesReasoningWhenNotPreserved(t *testing.T) {
 	response := map[string]interface{}{
 		"choices": []interface{}{

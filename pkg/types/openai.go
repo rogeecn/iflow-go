@@ -16,10 +16,11 @@ type ChatCompletionRequest struct {
 }
 
 type Message struct {
-	Role       string      `json:"role"`
-	Content    interface{} `json:"content"`
-	Name       string      `json:"name,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
+	Role             string      `json:"role"`
+	Content          interface{} `json:"content"`
+	ReasoningContent string      `json:"reasoning_content,omitempty"`
+	Name             string      `json:"name,omitempty"`
+	ToolCallID       string      `json:"tool_call_id,omitempty"`
 }
 
 type ChatCompletionResponse struct {

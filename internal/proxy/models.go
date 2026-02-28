@@ -90,16 +90,16 @@ func NormalizeResponse(response map[string]interface{}, preserveReasoning bool) 
 		reasoningText, hasReasoningText := reasoning.(string)
 		contentPresent := hasContent && valuePresent(content)
 
+		if preserveReasoning {
+			continue
+		}
+
 		switch {
 		case !contentPresent && hasReasoning && hasReasoningText && reasoningText != "":
 			message["content"] = reasoningText
-			if !preserveReasoning {
-				delete(message, "reasoning_content")
-			}
+			delete(message, "reasoning_content")
 		case contentPresent && hasReasoning:
-			if !preserveReasoning {
-				delete(message, "reasoning_content")
-			}
+			delete(message, "reasoning_content")
 		}
 	}
 

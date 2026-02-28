@@ -9,6 +9,7 @@ func TestLoad(t *testing.T) {
 	t.Setenv("IFLOW_DATA_DIR", "./tmp-data")
 	t.Setenv("IFLOW_LOG_LEVEL", "debug")
 	t.Setenv("IFLOW_UPSTREAM_PROXY", "http://127.0.0.1:8080")
+	t.Setenv("IFLOW_PRESERVE_REASONING_CONTENT", "false")
 
 	cfg, err := Load()
 	if err != nil {
@@ -33,6 +34,9 @@ func TestLoad(t *testing.T) {
 	if cfg.Proxy != "http://127.0.0.1:8080" {
 		t.Fatalf("Proxy = %q, want %q", cfg.Proxy, "http://127.0.0.1:8080")
 	}
+	if cfg.PreserveReasoningContent {
+		t.Fatalf("PreserveReasoningContent = %v, want false", cfg.PreserveReasoningContent)
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -41,5 +45,15 @@ func TestLoadInvalidPort(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("Load() error = nil, want non-nil")
+	}
+}
+
+func TestLoadPreserveReasoningDefault(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.PreserveReasoningContent {
+		t.Fatalf("PreserveReasoningContent = %v, want true", cfg.PreserveReasoningContent)
 	}
 }

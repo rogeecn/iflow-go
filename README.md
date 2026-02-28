@@ -77,6 +77,7 @@ iflow-go version
 | `IFLOW_DATA_DIR` | `./data` | 数据目录 |
 | `IFLOW_LOG_LEVEL` | `info` | 日志级别（`debug`/`info`/`warn`/`error`） |
 | `IFLOW_UPSTREAM_PROXY` | 空 | 上游代理 |
+| `IFLOW_PRESERVE_REASONING_CONTENT` | `true` | 保留 `reasoning_content`，便于 Cherry Studio 等客户端展示思考 |
 
 ## 测试
 

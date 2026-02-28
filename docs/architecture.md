@@ -156,6 +156,9 @@ IFLOW_DATA_DIR=./data           # 数据存储目录
 # 上游代理 (可选)
 IFLOW_UPSTREAM_PROXY=           # 代理地址 (http:// 或 socks5://)
 
+# 响应归一化
+IFLOW_PRESERVE_REASONING_CONTENT=true  # 是否保留 reasoning_content 字段
+
 # 日志级别
 IFLOW_LOG_LEVEL=info            # debug, info, warn, error
 ```
@@ -250,7 +253,7 @@ iflow-go
                 │
                 ▼
 6. 规范化响应
-   - 处理 reasoning_content
+   - 处理 reasoning_content（保留策略由 IFLOW_PRESERVE_REASONING_CONTENT 控制）
    - 统一响应格式
                 │
                 ▼

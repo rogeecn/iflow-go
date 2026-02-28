@@ -11,12 +11,13 @@ import (
 
 // Config defines all environment-driven runtime options.
 type Config struct {
-	Host        string `env:"IFLOW_HOST" envDefault:"0.0.0.0"`
-	Port        int    `env:"IFLOW_PORT" envDefault:"28000"`
-	Concurrency int    `env:"IFLOW_CONCURRENCY" envDefault:"1"`
-	DataDir     string `env:"IFLOW_DATA_DIR" envDefault:"./data"`
-	LogLevel    string `env:"IFLOW_LOG_LEVEL" envDefault:"info"`
-	Proxy       string `env:"IFLOW_UPSTREAM_PROXY"`
+	Host                     string `env:"IFLOW_HOST" envDefault:"0.0.0.0"`
+	Port                     int    `env:"IFLOW_PORT" envDefault:"28000"`
+	Concurrency              int    `env:"IFLOW_CONCURRENCY" envDefault:"1"`
+	DataDir                  string `env:"IFLOW_DATA_DIR" envDefault:"./data"`
+	LogLevel                 string `env:"IFLOW_LOG_LEVEL" envDefault:"info"`
+	Proxy                    string `env:"IFLOW_UPSTREAM_PROXY"`
+	PreserveReasoningContent bool   `env:"IFLOW_PRESERVE_REASONING_CONTENT" envDefault:"true"`
 }
 
 // Load reads .env (if present) and parses environment variables into Config.

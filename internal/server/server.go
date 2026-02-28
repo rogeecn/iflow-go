@@ -31,9 +31,10 @@ type Server struct {
 func New(cfg *config.Config) *Server {
 	if cfg == nil {
 		cfg = &config.Config{
-			Host:    "0.0.0.0",
-			Port:    28000,
-			DataDir: "./data",
+			Host:                     "0.0.0.0",
+			Port:                     28000,
+			DataDir:                  "./data",
+			PreserveReasoningContent: true,
 		}
 	}
 
@@ -51,7 +52,7 @@ func New(cfg *config.Config) *Server {
 		config:     cfg,
 		accountMgr: account.NewManager(cfg.DataDir),
 		newProxy: func(acct *account.Account) proxyClient {
-			return proxy.NewProxy(acct)
+			return proxy.NewProxyWithReasoning(acct, cfg.PreserveReasoningContent)
 		},
 	}
 
